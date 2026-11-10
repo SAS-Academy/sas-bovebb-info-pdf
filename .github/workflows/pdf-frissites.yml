@@ -1,0 +1,36 @@
+name: PDF frissítése
+
+# Minden reggel megnyitja az élő oldalt (pdf.sasprogram.live), és megnézi, változtak-e
+# a benne szereplő időpontok vagy a felvételi időszak. Csak akkor készít új PDF-et, ha igen.
+on:
+  schedule:
+    - cron: "30 4 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  pdf:
+    runs-on: ubuntu-latest
+    env:
+      TZ: Europe/Budapest
+      URL: https://pdf.sasprogram.live/
+    steps:
+      - uses: actions/checkout@v4
+      - name: Állapot ellenőrzése és PDF generálása
+        run: |
+          CHROME="google-chrome --headless=new --no-sandbox --disable-gpu --virtual-time-budget=15000"
+          $CHROME --dump-dom "$URL?t=$(date +%s)" > dom.html 2>/dev/null
+          NEW=$(python3 -c "import re,html;s=open('dom.html',encoding='utf-8').read();m=re.search(r'data-pdf-state=\"([^\"]*)\"',s);print(html.unescape(m.group(1)) if m else '')")
+          if [ -z "$NEW" ]; then echo "Az élő oldalon nincs állapotjelző, most kihagyom."; exit 0; fi
+          OLD=$(cat allapot.json 2>/dev/null || true)
+          echo "Régi: $OLD"; echo "Új:   $NEW"
+          if [ "$NEW" = "$OLD" ]; then echo "Nincs változás, a PDF marad."; exit 0; fi
+          $CHROME --no-pdf-header-footer --print-to-pdf=SAS-Bovebb-info-2026-27.pdf "$URL?t=$(date +%s)" 2>/dev/null
+          echo "$NEW" > allapot.json
+          git config user.name "github-actions[bot]"
+          git config user.email "41898283+github-actions[bot]@users.noreply.github.com"
+          git add SAS-Bovebb-info-2026-27.pdf allapot.json
+          git commit -m "PDF automatikus frissítése: változtak az időpontok"
+          git push
